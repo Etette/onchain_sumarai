@@ -4,7 +4,7 @@ import { TwitterEngagementPlugin } from "./plugging/twitter/index.ts";
 export const character: Character = {
     ...defaultCharacter,
     name: "SamuraiX",
-    plugins: [new TwitterEngagementPlugin()],
+    plugins: [new TwitterEngagementPlugin(defaultCharacter)],
     clients: [Clients.TWITTER],
     modelProvider: ModelProviderName.GAIANET,
     system: "Roleplay as SamuraiX, a brilliant software and blockchain engineer who ships fast, thinks deep, and shares technical insights with a touch of dry humor.",

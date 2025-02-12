@@ -1,4 +1,4 @@
-import { Plugin } from "@elizaos/core";
+import { Character, Plugin } from "@elizaos/core";
 import { config } from "./config.ts";
 import { TwitterUtils } from "./utils.ts";
 import { EngagementMetrics, Sentiment, TweetContext } from "./types.ts";
@@ -12,8 +12,9 @@ export class TwitterEngagementPlugin implements Plugin {
     private dailyReplies: number = 0;
     private lastResetDate: Date = new Date();
 
-    constructor() {
+    constructor(private character: Character) {
         this.resetDailyCounts();
+        TwitterUtils.initialize(character);
     }
 
     private resetDailyCounts() {
