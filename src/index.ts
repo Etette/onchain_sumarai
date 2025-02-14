@@ -128,7 +128,8 @@ const checkPortAvailable = (port: number): Promise<boolean> => {
 
 const startAgents = async () => {
   const directClient = new DirectClient();
-  let serverPort = parseInt(settings.PORT || "3000");
+  let serverPort = parseInt(process.env.PORT || settings.SERVER_PORT || "3000");
+  console.log("serverPort", serverPort);
   const args = parseArguments();
 
   let charactersArg = args.characters || args.character;
@@ -160,7 +161,7 @@ const startAgents = async () => {
 
   directClient.start(serverPort);
 
-  if (serverPort !== parseInt(settings.PORT || "3000")) {
+  if (serverPort !== parseInt(settings.SERVER_PORT || "3000")) {
     elizaLogger.log(`Server started on alternate port ${serverPort}`);
   }
 
