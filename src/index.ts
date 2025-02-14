@@ -128,7 +128,7 @@ const checkPortAvailable = (port: number): Promise<boolean> => {
 
 const startAgents = async () => {
   const directClient = new DirectClient();
-  let serverPort = 3000 // parseInt(process.env.PORT || settings.SERVER_PORT || "3000");
+  let serverPort = parseInt(settings.SERVER_PORT || "3000");
   console.log("serverPort", serverPort);
   const args = parseArguments();
 
