@@ -23,8 +23,6 @@ import {
   parseArguments,
 } from "./config/index.ts";
 import { initializeDatabase } from "./database/index.ts";
-import dotenv from "dotenv";
-dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -95,6 +93,7 @@ async function startAgent(character: Character, directClient: DirectClient) {
 
     directClient.registerAgent(runtime);
 
+    // report to console
     elizaLogger.debug(`Started ${character.name} as ${runtime.agentId}`);
 
     return runtime;
@@ -129,7 +128,8 @@ const checkPortAvailable = (port: number): Promise<boolean> => {
 
 const startAgents = async () => {
   const directClient = new DirectClient();
-  const port = process.env.PORT || settings.SERVER_PORT || 3000;
+  let serverPort = 3000 // parseInt(process.env.PORT || settings.SERVER_PORT || "3000");
+  console.log("serverPort", serverPort);
   const args = parseArguments();
 
   let charactersArg = args.characters || args.character;
@@ -140,7 +140,6 @@ const startAgents = async () => {
     characters = await loadCharacters(charactersArg);
   }
   console.log("characters", characters);
-  
   try {
     for (const character of characters) {
       await startAgent(character, directClient as DirectClient);
@@ -149,14 +148,22 @@ const startAgents = async () => {
     elizaLogger.error("Error starting agents:", error);
   }
 
+  while (!(await checkPortAvailable(serverPort))) {
+    elizaLogger.warn(`Port ${serverPort} is in use, trying ${serverPort + 1}`);
+    serverPort++;
+  }
+
   // upload some agent functionality into directClient
   directClient.startAgent = async (character: Character) => {
+    // wrap it so we don't have to inject directClient later
     return startAgent(character, directClient);
   };
 
-  // Start the server with the determined port
-  directClient.start(parseInt(port.toString()));
-  elizaLogger.log(`Server started on port ${port}`);
+  directClient.start(serverPort);
+
+  if (serverPort !== parseInt(settings.SERVER_PORT || "3000")) {
+    elizaLogger.log(`Server started on alternate port ${serverPort}`);
+  }
 
   const isDaemonProcess = process.env.DAEMON_PROCESS === "true";
   if(!isDaemonProcess) {
