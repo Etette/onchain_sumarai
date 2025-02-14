@@ -27,6 +27,7 @@
     "@tavily/core": "0.0.2",
     "amqplib": "0.10.5",
     "better-sqlite3": "11.5.0",
+    "dotenv": "^16.4.7",
     "fs": "0.0.1-security",
     "net": "1.0.2",
     "path": "0.12.7",
@@ -44,6 +45,7 @@
     }
   },
   "devDependencies": {
+    "@types/dotenv": "^8.2.3",
     "ts-node": "10.9.2",
     "tsup": "8.3.5",
     "typescript": "5.6.3"
