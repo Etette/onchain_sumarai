@@ -1,170 +1,281 @@
-// import { DirectClient } from "@elizaos/client-direct";
-// import {
-//   AgentRuntime,
-//   elizaLogger,
-//   settings,
-//   stringToUuid,
-//   type Character,
-// } from "@elizaos/core";
-// import { bootstrapPlugin } from "@elizaos/plugin-bootstrap";
-// import { createNodePlugin } from "@elizaos/plugin-node";
-// import { solanaPlugin } from "@elizaos/plugin-solana";
-// import fs from "fs";
-// import net from "net";
-// import path from "path";
-// import { fileURLToPath } from "url";
-// import { initializeDbCache } from "./cache/index.ts";
-// import { character } from "./character.ts";
-// import { startChat } from "./chat/index.ts";
-// import { initializeClients } from "./clients/index.ts";
-// import {
-//   getTokenForProvider,
-//   loadCharacters,
-//   parseArguments,
-// } from "./config/index.ts";
-// import { initializeDatabase } from "./database/index.ts";
+import { DirectClient } from "@elizaos/client-direct";
+import {
+  AgentRuntime,
+  elizaLogger,
+  settings,
+  stringToUuid,
+  type Character,
+} from "@elizaos/core";
+import { bootstrapPlugin } from "@elizaos/plugin-bootstrap";
+import { createNodePlugin } from "@elizaos/plugin-node";
+import { solanaPlugin } from "@elizaos/plugin-solana";
+import express from 'express';
+import fs from "fs";
+import net from "net";
+import path from "path";
+import { fileURLToPath } from "url";
+import { initializeDbCache } from "./cache/index.ts";
+import { character } from "./character.ts";
+import { startChat } from "./chat/index.ts";
+import { initializeClients } from "./clients/index.ts";
+import {
+  getTokenForProvider,
+  loadCharacters,
+  parseArguments,
+} from "./config/index.ts";
+import { initializeDatabase } from "./database/index.ts";
 
-// const __filename = fileURLToPath(import.meta.url);
-// const __dirname = path.dirname(__filename);
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-// export const wait = (minTime: number = 1000, maxTime: number = 3000) => {
-//   const waitTime =
-//     Math.floor(Math.random() * (maxTime - minTime + 1)) + minTime;
-//   return new Promise((resolve) => setTimeout(resolve, waitTime));
-// };
+// Utility function for controlled delays
+const wait = (minTime: number = 1000, maxTime: number = 3000): Promise<void> => {
+  const waitTime = Math.floor(Math.random() * (maxTime - minTime + 1)) + minTime;
+  return new Promise((resolve) => setTimeout(resolve, waitTime));
+};
 
-// let nodePlugin: any | undefined;
+// Check if port is available
+const isPortAvailable = (port: number): Promise<boolean> => {
+  return new Promise((resolve) => {
+    const server = net.createServer()
+      .once('error', (err: NodeJS.ErrnoException) => {
+        if (err.code === 'EADDRINUSE') {
+          resolve(false);
+        }
+      })
+      .once('listening', () => {
+        server.close();
+        resolve(true);
+      })
+      .listen(port);
+  });
+};
 
-// export function createAgent(
-//   character: Character,
-//   db: any,
-//   cache: any,
-//   token: string
-// ) {
-//   elizaLogger.success(
-//     elizaLogger.successesTitle,
-//     "Creating runtime for character",
-//     character.name,
-//   );
+// Find next available port
+const findAvailablePort = async (startPort: number, maxAttempts: number = 10): Promise<number> => {
+  let port = startPort;
+  let attempts = 0;
 
-//   nodePlugin ??= createNodePlugin();
+  while (attempts < maxAttempts) {
+    if (await isPortAvailable(port)) {
+      return port;
+    }
+    port++;
+    attempts++;
+  }
+  throw new Error(`No available ports found after ${maxAttempts} attempts starting from ${startPort}`);
+};
 
-//   return new AgentRuntime({
-//     databaseAdapter: db,
-//     token,
-//     modelProvider: character.modelProvider,
-//     evaluators: [],
-//     character,
-//     plugins: [
-//       bootstrapPlugin,
-//       nodePlugin,
-//       character.settings?.secrets?.WALLET_PUBLIC_KEY ? solanaPlugin : null,
-//     ].filter(Boolean),
-//     providers: [],
-//     actions: [],
-//     services: [],
-//     managers: [],
-//     cacheManager: cache,
-//   });
-// }
+// Setup Express server with port fallback
+const setupServer = async (initialPort: number, serverType: 'webhook' | 'direct'): Promise<{ app: express.Application; port: number }> => {
+  const app = express();
+  app.use(express.json());
 
-// async function startAgent(character: Character, directClient: DirectClient) {
-//   try {
-//     character.id ??= stringToUuid(character.name);
-//     character.username ??= character.name;
-
-//     const token = getTokenForProvider(character.modelProvider, character);
-//     const dataDir = path.join(__dirname, "../data");
-
-//     if (!fs.existsSync(dataDir)) {
-//       fs.mkdirSync(dataDir, { recursive: true });
-//     }
-
-//     const db = initializeDatabase(dataDir);
-
-//     await db.init();
-
-//     const cache = initializeDbCache(character, db);
-//     const runtime = createAgent(character, db, cache, token);
-
-//     await runtime.initialize();
-
-//     runtime.clients = await initializeClients(character, runtime);
-
-//     directClient.registerAgent(runtime);
-
-//     elizaLogger.debug(`Started ${character.name} as ${runtime.agentId}`);
-
-//     return runtime;
-//   } catch (error) {
-//     elizaLogger.error(
-//       `Error starting agent for character ${character.name}:`,
-//       error,
-//     );
-//     console.error(error);
-//     throw error;
-//   }
-// }
-
-// const checkPortAvailable = (port: number): Promise<boolean> => {
-//   return new Promise((resolve) => {
-//     const server = net.createServer();
-
-//     server.once("error", (err: NodeJS.ErrnoException) => {
-//       if (err.code === "EADDRINUSE") {
-//         resolve(false);
-//       }
-//     });
-
-//     server.once("listening", () => {
-//       server.close();
-//       resolve(true);
-//     });
-
-//     server.listen(port);
-//   });
-// };
-
-// const startAgents = async () => {
-//   const directClient = new DirectClient();
-//   const port = process.env.PORT || settings.SERVER_PORT || 3000;
-//   const args = parseArguments();
-
-//   let charactersArg = args.characters || args.character;
-//   let characters = [character];
-
-//   console.log("charactersArg", charactersArg);
-//   if (charactersArg) {
-//     characters = await loadCharacters(charactersArg);
-//   }
-//   console.log("characters", characters);
+  const port = await findAvailablePort(initialPort);
   
-//   try {
-//     for (const character of characters) {
-//       await startAgent(character, directClient as DirectClient);
-//     }
-//   } catch (error) {
-//     elizaLogger.error("Error starting agents:", error);
-//   }
+  if (port !== initialPort) {
+    elizaLogger.warn(`${serverType} server port ${initialPort} is in use, using port ${port} instead`);
+  }
 
-//   // upload some agent functionality into directClient
-//   directClient.startAgent = async (character: Character) => {
-//     return startAgent(character, directClient);
-//   };
+  return { app, port };
+};
 
-//   // Start the server with the determined port
-//   directClient.start(parseInt(port.toString()));
-//   elizaLogger.log(`Server started on port ${port}`);
+interface WebhookConfig {
+  endpoint: string;
+  method: 'POST' | 'GET';
+  headers?: Record<string, string>;
+  retryAttempts?: number;
+}
 
-//   const isDaemonProcess = process.env.DAEMON_PROCESS === "true";
-//   if(!isDaemonProcess) {
-//     elizaLogger.log("Chat started. Type 'exit' to quit.");
-//     const chat = startChat(characters);
-//     chat();
-//   }
-// };
+class WebhookAgentRuntime extends AgentRuntime {
+  private webhookConfig?: WebhookConfig;
+  private retryCount = 0;
+  private maxRetries = 3;
 
-// startAgents().catch((error) => {
-//   elizaLogger.error("Unhandled error in startAgents:", error);
-//   process.exit(1);
-// });
+  constructor(config: any, webhookConfig?: WebhookConfig) {
+    super(config);
+    this.webhookConfig = webhookConfig;
+    this.maxRetries = webhookConfig?.retryAttempts || 3;
+  }
+
+  async sendWebhook(data: any): Promise<void> {
+    if (!this.webhookConfig) return;
+
+    try {
+      const response = await fetch(this.webhookConfig.endpoint, {
+        method: this.webhookConfig.method,
+        headers: {
+          'Content-Type': 'application/json',
+          ...this.webhookConfig.headers,
+        },
+        body: JSON.stringify(data),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Webhook failed with status: ${response.status}`);
+      }
+
+      this.retryCount = 0;
+    } catch (error) {
+      if (this.retryCount < this.maxRetries) {
+        this.retryCount++;
+        await wait(1000 * this.retryCount);
+        return this.sendWebhook(data);
+      }
+      elizaLogger.warn(`Webhook delivery failed after ${this.maxRetries} attempts:`, error);
+    }
+  }
+}
+
+function createAgent(
+  character: Character,
+  db: any,
+  cache: any,
+  token: string,
+  webhookConfig?: WebhookConfig
+) {
+  elizaLogger.success(
+    elizaLogger.successesTitle,
+    "Creating runtime for character",
+    character.name,
+  );
+
+  const nodePlugin = createNodePlugin();
+
+  return new WebhookAgentRuntime({
+    databaseAdapter: db,
+    token,
+    modelProvider: character.modelProvider,
+    evaluators: [],
+    character,
+    plugins: [
+      bootstrapPlugin,
+      nodePlugin,
+      character.settings?.secrets?.WALLET_PUBLIC_KEY ? solanaPlugin : null,
+    ].filter(Boolean),
+    providers: [],
+    actions: [],
+    services: [],
+    managers: [],
+    cacheManager: cache,
+  }, webhookConfig);
+}
+
+async function startAgent(
+  character: Character,
+  directClient: DirectClient,
+  webhookConfig?: WebhookConfig
+): Promise<WebhookAgentRuntime> {
+  try {
+    character.id ??= stringToUuid(character.name);
+    character.username ??= character.name;
+
+    const token = getTokenForProvider(character.modelProvider, character);
+    const dataDir = path.join(__dirname, "../data");
+
+    fs.mkdirSync(dataDir, { recursive: true });
+
+    const db = initializeDatabase(dataDir);
+    await db.init();
+
+    const cache = initializeDbCache(character, db);
+    const runtime = createAgent(character, db, cache, token, webhookConfig);
+
+    await runtime.initialize();
+    runtime.clients = await initializeClients(character, runtime);
+    directClient.registerAgent(runtime);
+
+    elizaLogger.debug(`Started ${character.name} as ${runtime.agentId}`);
+    
+    await runtime.sendWebhook({
+      event: 'agent_started',
+      character: character.name,
+      agentId: runtime.agentId,
+      timestamp: new Date().toISOString()
+    });
+
+    return runtime;
+  } catch (error) {
+    elizaLogger.error(`Error starting agent for character ${character.name}:`, error);
+    throw error;
+  }
+}
+
+const startAgents = async () => {
+  try {
+    const directClient = new DirectClient();
+    const args = parseArguments();
+    
+    // Setup servers with port handling
+    const directPort = parseInt(settings.SERVER_PORT || "3000");
+    const webhookPort = parseInt(settings.WEBHOOK_DOMAIN || "3001");
+
+    // Setup webhook server
+    const { app: webhookApp, port: finalWebhookPort } = await setupServer(webhookPort, 'webhook');
+    
+    webhookApp.post('/webhook', (req, res) => {
+      elizaLogger.debug('Received webhook:', req.body);
+      res.status(200).send('OK');
+    });
+
+    const webhookServer = webhookApp.listen(finalWebhookPort);
+
+    const webhookConfig: WebhookConfig = {
+      endpoint: settings.WEBHOOK_ENDPOINT || `http://localhost:${finalWebhookPort}/webhook`,
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${settings.WEBHOOK_SECRET || 'default-secret'}`,
+      },
+      retryAttempts: 3
+    };
+
+    let characters = [character];
+    if (args.characters || args.character) {
+      characters = await loadCharacters(args.characters || args.character);
+    }
+
+    const startedAgents = await Promise.all(
+      characters.map(char => startAgent(char, directClient, webhookConfig))
+    );
+
+    directClient.startAgent = async (character: Character) => {
+      return startAgent(character, directClient, webhookConfig);
+    };
+
+    // Find available port for DirectClient
+    const finalDirectPort = await findAvailablePort(directPort);
+    directClient.start(finalDirectPort);
+
+    if (finalDirectPort !== directPort) {
+      elizaLogger.log(`DirectClient started on alternate port ${finalDirectPort}`);
+    }
+
+    const isDaemonProcess = process.env.DAEMON_PROCESS === "true";
+    if (!isDaemonProcess) {
+      elizaLogger.log("Chat started. Type 'exit' to quit.");
+      const chat = startChat(characters);
+      chat();
+    }
+
+    return startedAgents;
+  } catch (error) {
+    elizaLogger.error("Error in startAgents:", error);
+    process.exit(1);
+  }
+};
+
+// Graceful shutdown handler
+process.on('SIGTERM', async () => {
+  elizaLogger.log('Received SIGTERM. Performing graceful shutdown...');
+  process.exit(0);
+});
+
+process.on('uncaughtException', (error) => {
+  elizaLogger.error('Uncaught Exception:', error);
+  process.exit(1);
+});
+
+startAgents().catch((error) => {
+  elizaLogger.error("Unhandled error in startAgents:", error);
+  process.exit(1);
+});
