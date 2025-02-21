@@ -22,6 +22,8 @@ import {
   parseArguments,
 } from "./config/index.ts";
 import { initializeDatabase } from "./database/index.ts";
+import dotenv from "dotenv";
+dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -138,7 +140,7 @@ async function startAgent(
   }
 }
 
-const startAgents = async () => {
+export const startAgents = async () => {
   try {
     const directClient = new DirectClient();
     const args = parseArguments();
