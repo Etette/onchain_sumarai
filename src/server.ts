@@ -69,20 +69,6 @@ const findAvailablePort = async (startPort: number, maxAttempts: number = 10): P
   throw new Error(`No available ports found after ${maxAttempts} attempts starting from ${startPort}`);
 };
 
-// Setup Express server with port fallback
-const setupServer = async (initialPort: number, serverType: 'webhook' | 'direct'): Promise<{ app: express.Application; port: number }> => {
-  const app = express();
-  app.use(express.json());
-
-  const port = await findAvailablePort(initialPort);
-  
-  if (port !== initialPort) {
-    elizaLogger.warn(`${serverType} server port ${initialPort} is in use, using port ${port} instead`);
-  }
-
-  return { app, port };
-};
-
 interface WebhookConfig {
   endpoint: string;
   method: 'POST' | 'GET';
@@ -119,10 +105,14 @@ class WebhookAgentRuntime extends AgentRuntime {
       }
 
       this.retryCount = 0;
+      elizaLogger.debug(`Webhook sent successfully to ${this.webhookConfig.endpoint}`);
     } catch (error) {
+      elizaLogger.warn(`Webhook attempt failed (${this.retryCount + 1}/${this.maxRetries}):`, error);
       if (this.retryCount < this.maxRetries) {
         this.retryCount++;
-        await wait(1000 * this.retryCount);
+        const backoffTime = 1000 * this.retryCount;
+        elizaLogger.debug(`Retrying webhook in ${backoffTime}ms...`);
+        await wait(backoffTime, backoffTime);
         return this.sendWebhook(data);
       }
       elizaLogger.warn(`Webhook delivery failed after ${this.maxRetries} attempts:`, error);
@@ -213,35 +203,44 @@ const startAgents = async () => {
     const app = express();
     app.use(express.json());
     
-    // Add health check endpoint for Render
+    // Enhanced health check endpoint for Render
     app.get('/health', (req, res) => {
-      res.status(200).json({ status: 'ok' });
+      res.status(200).json({ 
+        status: 'ok',
+        timestamp: new Date().toISOString(),
+        environment: process.env.NODE_ENV || 'development'
+      });
     });
 
-    // Start the main server first
-    const mainServer = app.listen(RENDER_PORT, () => {
-      elizaLogger.success(`Main server started on port ${RENDER_PORT}`);
-    });
-    
-    // Setup webhook server on a different port
-    const webhookPort = parseInt(settings.WEBHOOK_DOMAIN || "3001");
-    const { app: webhookApp, port: finalWebhookPort } = await setupServer(webhookPort, 'webhook');
-    
-    webhookApp.post('/webhook', (req, res) => {
+    // Add webhook endpoint directly to the main app
+    app.post('/webhook', (req, res) => {
       elizaLogger.debug('Received webhook:', req.body);
       res.status(200).send('OK');
     });
 
-    const webhookServer = webhookApp.listen(finalWebhookPort);
-
+    // Start the main server first on the Render-assigned port
+    const mainServer = app.listen(parseInt(RENDER_PORT), () => {
+      elizaLogger.success(`Main server started on port ${RENDER_PORT}`);
+    });
+    
+    // Determine the base URL for webhooks
+    const isProduction = process.env.NODE_ENV === 'production';
+    const baseUrl = isProduction 
+      ? (process.env.RENDER_EXTERNAL_URL || settings.WEBHOOK_URL || `https://${process.env.RENDER_SERVICE_NAME}.onrender.com`)
+      : `http://localhost:${RENDER_PORT}`;
+    
+    // Configure webhook to use the main server's endpoint
     const webhookConfig: WebhookConfig = {
-      endpoint: settings.WEBHOOK_URL || `http://localhost:${finalWebhookPort}/webhook`,
+      endpoint: `${baseUrl}/webhook`, 
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${settings.WEBHOOK_SECRET || 'default-secret'}`,
+        'User-Agent': 'ElizaOS-Agent/1.0',
       },
-      retryAttempts: 3
+      retryAttempts: 5
     };
+
+    elizaLogger.success(`Webhook configured at ${webhookConfig.endpoint}`);
 
     let characters = [character];
     if (args.characters || args.character) {
@@ -256,17 +255,24 @@ const startAgents = async () => {
       return startAgent(character, directClient, webhookConfig);
     };
 
-    // Find available port for DirectClient
-    const directPort = parseInt(settings.SERVER_PORT || "3002");
-    const finalDirectPort = await findAvailablePort(directPort);
-    directClient.start(finalDirectPort);
-
-    if (finalDirectPort !== directPort) {
-      elizaLogger.log(`DirectClient started on alternate port ${finalDirectPort}`);
+    // Find available port for DirectClient (only in development)
+    let directClientPort: number;
+    if (isProduction) {
+      // In production, don't start the DirectClient server separately
+      directClientPort = parseInt(RENDER_PORT);
+      // Assuming DirectClient does not support direct integration with Express
+      elizaLogger.warn('DirectClient does not support registerExpress. Skipping integration.');
+      elizaLogger.success(`DirectClient registered with main server on port ${directClientPort}`);
+    } else {
+      // In development, start DirectClient on a separate port
+      const directPort = parseInt(settings.SERVER_PORT || "3002");
+      directClientPort = await findAvailablePort(directPort);
+      directClient.start(directClientPort);
+      elizaLogger.success(`DirectClient started on port ${directClientPort}`);
     }
 
     const isDaemonProcess = process.env.DAEMON_PROCESS === "true";
-    if (!isDaemonProcess) {
+    if (!isDaemonProcess && !isProduction) {
       elizaLogger.log("Chat started. Type 'exit' to quit.");
       const chat = startChat(characters);
       chat();
@@ -276,7 +282,6 @@ const startAgents = async () => {
     process.on('SIGTERM', async () => {
       elizaLogger.log('Received SIGTERM. Performing graceful shutdown...');
       mainServer.close();
-      webhookServer.close();
       process.exit(0);
     });
 
